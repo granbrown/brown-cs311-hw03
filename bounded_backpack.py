@@ -31,7 +31,17 @@ class BoundedBackpack:
         Insert at the top (LIFO), then wake any thread waiting in pop().
         """
         # TODO
-        raise NotImplementedError
+        deadline = None if timeout is None else time.monotonic() + timeout
+        with self._condition:
+            # while, not if: wait() can return spuriously, and another
+            # producer may have taken the freed slot before we re-acquire.
+            while len(self._items) >= self.capacity:
+                remaining = self._remaining(deadline)
+                if remaining is not None and remaining <= 0:
+                    raise BackpackTimeoutError("push() timed out: backpack is full")
+                self._condition.wait(remaining)
+            self._items.append(item) 
+            self._condition.notify_all()
 
     def pop(self, timeout: Optional[float] = None) -> Any:
         """
@@ -40,4 +50,19 @@ class BoundedBackpack:
         Remove and return the top item, then wake any thread waiting in push().
         """
         # TODO
-        raise NotImplementedError
+        deadline = None if timeout is None else time.monotonic() + timeout
+        with self._condition:
+            while not self._items:
+                remaining = self._remaining(deadline)
+                if remaining is not None and remaining <= 0:
+                    raise BackpackTimeoutError("pop() timed out: backpack is empty")
+                self._condition.wait(remaining)
+            item = self._items.pop() 
+            self._condition.notify_all()
+            return item
+
+    @staticmethod
+    def _remaining(deadline: Optional[float]) -> Optional[float]:
+        if deadline is None:
+            return None
+        return deadline - time.monotonic()
